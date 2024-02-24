@@ -26,6 +26,8 @@ type requestInfo struct {
 	headerWritten bool
 }
 
+var dedupURL = "http://172.17.0.1:12345/receive-lsof"
+
 // buildFunctionInput for a GET method this is an empty byte array.
 func buildFunctionInput(config *WatchdogConfig, r *http.Request) ([]byte, error) {
 	var res []byte
@@ -129,6 +131,30 @@ func pipeRequest(config *WatchdogConfig, w http.ResponseWriter, r *http.Request,
 			}
 		})
 	}
+
+	go func() {
+		cmdPid := -1
+		for {
+			if targetCmd.Process != nil {
+				cmdPid = targetCmd.Process.Pid
+				if cmdPid > 0 {
+					break
+				}
+			}
+		}
+		lsof := exec.Command("lsof", "-p", fmt.Sprintf("%d", cmdPid))
+		b, err := lsof.Output()
+		if err != nil {
+			log.Fatalf("lsof -p %d failed: %s", cmdPid, err.Error())
+		}
+		log.Printf("lsof -p %d output:\n%s", cmdPid, string(b))
+		resp, err := http.Post(dedupURL, "application/octet-stream", bytes.NewBuffer(b))
+		if err != nil {
+			log.Printf("Error when reporting to remote service: %s", err.Error())
+			return
+		}
+		defer resp.Body.Close()
+	}()
 
 	// Write to pipe in separate go-routine to prevent blocking
 	go func() {
