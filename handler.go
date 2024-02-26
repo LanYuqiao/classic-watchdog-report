@@ -96,7 +96,7 @@ func pipeRequest(config *WatchdogConfig, w http.ResponseWriter, r *http.Request,
 	var buildInputErr error
 	requestBody, buildInputErr = buildFunctionInput(config, r)
 	if buildInputErr != nil {
-		if config.writeDebug == true {
+		if config.writeDebug {
 			log.Printf("Error=%s, ReadLen=%d\n", buildInputErr.Error(), len(requestBody))
 		}
 		ri.headerWritten = true
@@ -143,11 +143,12 @@ func pipeRequest(config *WatchdogConfig, w http.ResponseWriter, r *http.Request,
 			}
 		}
 		lsof := exec.Command("lsof", "-p", fmt.Sprintf("%d", cmdPid))
+		time.Sleep(1000 * time.Millisecond)
 		b, err := lsof.Output()
 		if err != nil {
 			log.Fatalf("lsof -p %d failed: %s", cmdPid, err.Error())
 		}
-		log.Printf("lsof -p %d output:\n%s", cmdPid, string(b))
+		// log.Printf("lsof -p %d output:\n%s", cmdPid, string(b))
 		resp, err := http.Post(dedupURL, "application/octet-stream", bytes.NewBuffer(b))
 		if err != nil {
 			log.Printf("Error when reporting to remote service: %s", err.Error())
@@ -191,12 +192,12 @@ func pipeRequest(config *WatchdogConfig, w http.ResponseWriter, r *http.Request,
 	}
 
 	if err != nil {
-		if config.writeDebug == true {
+		if config.writeDebug {
 			log.Printf("Success=%t, Error=%s\n", targetCmd.ProcessState.Success(), err.Error())
 			log.Printf("Out=%s\n", out)
 		}
 
-		if ri.headerWritten == false {
+		if !ri.headerWritten {
 			w.WriteHeader(http.StatusInternalServerError)
 			response := bytes.NewBufferString(err.Error())
 			w.Write(response.Bytes())
@@ -210,7 +211,7 @@ func pipeRequest(config *WatchdogConfig, w http.ResponseWriter, r *http.Request,
 	}
 
 	var bytesWritten string
-	if config.writeDebug == true {
+	if config.writeDebug {
 		os.Stdout.Write(out)
 	} else {
 		bytesWritten = fmt.Sprintf("Wrote %d Bytes", len(out))
@@ -228,7 +229,7 @@ func pipeRequest(config *WatchdogConfig, w http.ResponseWriter, r *http.Request,
 	}
 
 	execDuration := time.Since(startTime).Seconds()
-	if ri.headerWritten == false {
+	if !ri.headerWritten {
 		w.Header().Set("X-Duration-Seconds", fmt.Sprintf("%f", execDuration))
 		ri.headerWritten = true
 		w.WriteHeader(200)
@@ -314,7 +315,7 @@ func makeHealthHandler() func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			if atomic.LoadInt32(&acceptingConnections) == 0 || lockFilePresent() == false {
+			if atomic.LoadInt32(&acceptingConnections) == 0 || !lockFilePresent() {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
